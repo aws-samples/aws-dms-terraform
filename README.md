@@ -1,6 +1,19 @@
 ## Build a solution for data migration between on premises and Aurora databases hosted in private/non-routable VPCs using DMS
 
-The purpose of this repository is to build a solution that will demonstrate how to migrate data between an on premise database and an Aurora datatabase hosted in a private VPC using AWS DMS. The infrastructure for this demo will be created using Terraform.
+This solution demonstrates how to configure different AWS services to simulate customer environments consisting of DMS instances hosted on VPCs without direct network connectivity to on-premises and target networks. The objective is not to provide a deep dive on the services used, to act as a guideline on how to leverage these services to achieve alternate ways of VPC connectivity. Finally, to validate the architecture, we provide SQL statements to create sample database objects and insert data, and AWS CLI commands to migrate objects and data using AWS DMS. The AWS services used in our proposed architecture are:
+- 3 VPCs (on-prem, DMS, and target)
+- 2 Network Load Balancers (on-prem to DMS and DMS to target)
+- 2 PrivateLink endpoints (on-prem to DMS and DMS to target)
+- 2 Amazon Aurora PostgreSQL-Compatible Edition databases (on-prem and target)
+- 2 AWS Secrets Manager database secrets
+- 1 DMS instance
+- 1 Elastic Cloud Compute (Amazon EC2) instance (migration workstation)
+
+The solution is represented in the following diagram.
+
+#### Architecture
+
+![dms-architecture](images/dms.png)
 
 ### Requirements
 
@@ -9,9 +22,7 @@ The purpose of this repository is to build a solution that will demonstrate how 
 - IAM User or IAM role with permissions to create AWS Resources.
 - Clone this repo! : `git clone https://github.com/aws-samples/aws-dms-terraform.git`
 
-### Architecture
 
-![dms-architecture](images/dms.png)
 
 ### Privisioning the infrastructure
 
@@ -157,9 +168,9 @@ aws dms create-replication-task --replication-task-identifier $dmsRepTask --sour
 ```
 export dmsRepTaskARN=$(aws dms describe-replication-tasks --filters Name=replication-task-id,Values=$dmsRepTask
 --query "ReplicationTasks[*].ReplicationTaskArn" --output text)
-```
 
-```aws dms start-replication-task --start-replication-task-type start-replication --replication-task-arn $ dmsRepTaskARN --region $AWS_REGION```
+aws dms start-replication-task --start-replication-task-type start-replication --replication-task-arn $ dmsRepTaskARN --region $AWS_REGION
+```
 
 6.	Monitor the migration task while it is running. You can run this command in a loop at different intervals.
 
@@ -189,6 +200,7 @@ The output must look similar to the one below:
 
 ![output](images/output4.png)
 
+If you require further details on [DMS configuration best practices](https://docs.aws.amazon.com/dms/latest/userguide/CHAP_BestPractices.html]), you can consult the AWS Documentation website. As always, once you are done with your testing, please make sure to use Terraform to delete all the services created and prevent future charges to your account.
 
 ### Clean up
 
