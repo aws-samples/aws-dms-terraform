@@ -60,6 +60,135 @@ CREATE TABLE demo_schema.demo_accounts(
 
 The output must look similar to the one below:
 
+![output](images/output1.png)
+
+4.	Insert sample records in the newly created table.
+
+```
+INSERT INTO demo_schema.demo_accounts VALUES 
+(1,'John','Smith',current_timestamp),
+(2,'Mary','Doe',current_timestamp),
+(3,'Tom','Good',current_timestamp),
+(4,'Peter','Flynn',current_timestamp);
+```
+
+The insert command returns an output similar to this:
+
+`INSERT 0 4`
+
+5.	Verify all the records were successfully created.
+
+`SELECT * FROM demo_schema.demo_accounts;`
+
+The output must look similar to the one below:
+
+![output](images/output2.png)
+
+#### Prepare target database
+
+Before we start the migration, we must create the target database used for the creation of the schema and objects associated with the migration. DMS does not create databases as part of the migration process. 
+
+1.	Using the PostgreSQL client installed in the bastion host, connect to the target database via the target NLB VPC endpoint.
+
+```psql -v sslmode="'require'" -h targetVpcEndpoint -p 5432 -d postgres -U postgres```
+
+2.	Next, create the target database by running the following statement.
+
+```CREATE DATABASE demo_db;```
+
+#### Create DMS replication task
+
+The DMS replication tasks are the core component of the database migration process, they contain all the metadata require to instruct DMS on how to perform the migrations. Therefore, before we begin with the creation of the replication task, lets create two JSON configuration files that will be used for the task settings and table mappings respectively.
+
+1.	Create the task-settings.json file can be created using this sample JSON document:
+```
+{
+  "TargetMetadata": {
+    "SupportLobs": true,
+    "FullLobMode": false,
+    "LobChunkSize": 64,
+    "LimitedSizeLobMode": true,
+    "LobMaxSize":2048
+  },
+  "FullLoadSettings": {
+    "TargetTablePrepMode": "TRUNCATE_BEFORE_LOAD",
+    "MaxFullLoadSubTasks":16
+  },
+  "Logging": {
+    "EnableLogging": true
+  }
+}
+```
+
+2.	Create the table-mappings.json using the following JSON document:
+```
+{
+  "rules": [
+    {
+      "rule-type": "selection",
+      "rule-id": "1",
+      "rule-name": "1",
+      "object-locator": {
+        "schema-name": "demo_schema",
+        "table-name": "demo_accounts"
+      },
+      "rule-action": "include",
+      "filters": []
+    }
+  ]
+}
+```
+
+3.	Next, we configure a few environment variables to store information such as Amazon Resource Names and the AWS region in which the resources are deployed.
+```
+export AWS_REGION=us-east-1
+export sourceEndpointARN=$(aws dms describe-endpoints --region $AWS_REGION --filters Name=endpoint-type,Values=SOURCE --query 'Endpoints[0].EndpointArn' --output text)
+export targetEndpointARN=$(aws dms describe-endpoints --region $AWS_REGION --filters Name=endpoint-type,Values=TARGET --query 'Endpoints[0].EndpointArn' --output text)
+export dmsInstanceARN=$(aws dms describe-replication-instances --region $AWS_REGION --query 'ReplicationInstances[0].ReplicationInstanceArn' --output text)
+export dmsRepTask=dms-task-demo
+```
+
+4.	Run the AWS CLI command to create a DMS migration task called "dms-task-demo".
+```
+aws dms create-replication-task --replication-task-identifier $dmsRepTask --source-endpoint-arn $sourceEndpointARN --target-endpoint-arn $targetEndpointARN --region $AWS_REGION --replication-instance-arn $dmsInstanceARN --migration-type full-load --table-mappings file://table-mappings.json --replication-task-settings file://task-settings.json --region $AWS_REGION
+```
+
+5.	Wait approximately 60 seconds for the task to be created and then run the DMS migration task.
+```
+export dmsRepTaskARN=$(aws dms describe-replication-tasks --filters Name=replication-task-id,Values=$dmsRepTask
+--query "ReplicationTasks[*].ReplicationTaskArn" --output text)
+```
+
+```aws dms start-replication-task --start-replication-task-type start-replication --replication-task-arn $ dmsRepTaskARN --region $AWS_REGION```
+
+6.	Monitor the migration task while it is running. You can run this command in a loop at different intervals.
+
+```aws dms describe-replication-tasks --filters Name=replication-task-id,Values=$dmsRepTask --output table```
+
+7.	Once the task has completed, connect to the target database using a PostgreSQL client.
+
+```psql -v sslmode="'require'" -h targetVpcEndpoint -p 5432 -d demo_db -U master```
+
+8.	Describe the target table to validate it is migrated successfully.
+```
+\dt+ demo_schema.demo_accounts
+\d demo_schema.demo_accounts
+```
+
+The output must look similar to the one below:
+
+
+![output](images/output3.png)
+
+9.	Finally, query the contents of the demo_schema.demo_accounts table to list all the records match the records stored in the source database.
+
+```SELECT * FROM demo_schema.demo_accounts;```
+
+The output must look similar to the one below:
+
+
+![output](images/output4.png)
+
 
 ### Clean up
 
