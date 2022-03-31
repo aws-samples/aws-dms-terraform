@@ -1,14 +1,10 @@
 ## Build a solution for data migration between on premises and Aurora databases hosted in private/non-routable VPCs using DMS
 
-Be sure to:
-
-* Change the title in this README
-* Edit your repository description on GitHub
-
+test
 
 ### Prerequisites
-- Access to [AWS Account] (https://aws.amazon.com/premiumsupport/knowledge-center/create-and-activate-aws-account/)
-- Terraform has been [configured] (https://git-scm.com/book/en/v2/Getting-Started-Installing-Git) with AWS
+- Access to [AWS Account](https://aws.amazon.com/premiumsupport/knowledge-center/create-and-activate-aws-account/)
+- Terraform has been[configured] (https://git-scm.com/book/en/v2/Getting-Started-Installing-Git) with AWS
 
 ### Architecture
 ![tfsec-architecture](images/tfsec.png)
