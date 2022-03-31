@@ -4,10 +4,10 @@ test
 
 ### Prerequisites
 - Access to [AWS Account](https://aws.amazon.com/premiumsupport/knowledge-center/create-and-activate-aws-account/)
-- Terraform has been[configured] (https://git-scm.com/book/en/v2/Getting-Started-Installing-Git) with AWS
+- Terraform has been [configured](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git) with AWS
 
 ### Architecture
-![tfsec-architecture](images/tfsec.png)
+![dms-architecture](images/dms.png)
 
 ### Clean up
 
