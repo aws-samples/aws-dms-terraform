@@ -1,10 +1,10 @@
-## Build a solution for data migration between on premises and Aurora databases hosted in private/non-routable VPCs using DMS
+## Data migration between on premises and Amazon RDS for PostgreSQL databases hosted in private/non-routable VPCs using DMS
 
 This solution demonstrates how to configure different AWS services to simulate customer environments consisting of DMS instances hosted on VPCs without direct network connectivity to on-premises and target networks. The objective is not to provide a deep dive on the services used, to act as a guideline on how to leverage these services to achieve alternate ways of VPC connectivity. Finally, to validate the architecture, we provide SQL statements to create sample database objects and insert data, and AWS CLI commands to migrate objects and data using AWS DMS. The AWS services used in our proposed architecture are:
 - 3 VPCs (on-prem, DMS, and target)
 - 2 Network Load Balancers (on-prem to DMS and DMS to target)
 - 2 PrivateLink endpoints (on-prem to DMS and DMS to target)
-- 2 Amazon Aurora PostgreSQL-Compatible Edition databases (on-prem and target)
+- 2 Amazon RDS for PostgreSQL databases (on-prem and target)
 - 2 AWS Secrets Manager database secrets
 - 1 DMS instance
 - 1 Elastic Cloud Compute (Amazon EC2) instance (migration workstation)
@@ -21,7 +21,6 @@ The solution is represented in the following diagram.
 - Terraform has been [configured](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git) with AWS
 - IAM User or IAM role with permissions to create AWS Resources.
 - Clone this repo! : `git clone https://github.com/aws-samples/aws-dms-terraform.git`
-
 
 
 ### Privisioning the infrastructure
@@ -46,7 +45,7 @@ To validate the environment, we just built using the Terraform modules, we perfo
 
 1.	Using the PostgreSQL client (psql) in the bastion host, connect to the source database via the NLB VPC endpoint.
 
-`psql -v sslmode="'require'" -h sourceVpcEndpoint -p 5432 -d postgres -U postgres`
+`psql -v sslmode=require -h sourceVpcEndpoint -p 5432 -d postgres -U postgres`
 
 2.	Next create a database, schema, and table objects.
 
@@ -101,7 +100,7 @@ Before we start the migration, we must create the target database used for the c
 
 1.	Using the PostgreSQL client installed in the bastion host, connect to the target database via the target NLB VPC endpoint.
 
-```psql -v sslmode="'require'" -h targetVpcEndpoint -p 5432 -d postgres -U postgres```
+```psql -v sslmode=require -h targetVpcEndpoint -p 5432 -d postgres -U postgres```
 
 2.	Next, create the target database by running the following statement.
 
@@ -178,7 +177,7 @@ aws dms start-replication-task --start-replication-task-type start-replication -
 
 7.	Once the task has completed, connect to the target database using a PostgreSQL client.
 
-```psql -v sslmode="'require'" -h targetVpcEndpoint -p 5432 -d demo_db -U master```
+```psql -v sslmode=require -h targetVpcEndpoint -p 5432 -d demo_db -U master```
 
 8.	Describe the target table to validate it is migrated successfully.
 ```
