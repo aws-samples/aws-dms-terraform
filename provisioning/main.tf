@@ -480,7 +480,7 @@ resource "aws_instance" "ec2" {
   ami                   = data.aws_ami.amazon_linux_2.id
   iam_instance_profile  = aws_iam_instance_profile.ec2_instance_profile.name 
   instance_type         = var.instance_size
-  user_data             = file("user_data.sh")
+  user_data             = file("../scripts/user_data.sh")
 
   network_interface {
     network_interface_id = aws_network_interface.nic.id

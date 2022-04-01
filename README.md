@@ -23,19 +23,19 @@ The solution is represented in the following diagram.
 - Clone this repo! : `git clone https://github.com/aws-samples/aws-dms-terraform.git`
 
 
-### Privisioning the infrastructure
+### Provisioning the infrastructure
 
 We can start deploying the infrastructure using the Terraform commands:
 
 ```
 git clone https://github.com/aws-samples/aws-dms-terraform.git
-cd privisioning
+cd provisioning
 terraform init
 terraform plan -out=tfplan -var-file="../variables/dev/common.tfvars.json"
 terraform apply tfplan
 ```
 
-The infrastructure creation takes around 5-10 minutes to complete.
+The infrastructure creation takes around 5-20 minutes to complete.
 
 ### Solution Validation
 
