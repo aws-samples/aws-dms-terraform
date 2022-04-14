@@ -50,6 +50,17 @@ data "aws_iam_policy_document" "ssm" {
   }
 }
 
+data "aws_iam_policy_document" "dms" {
+  statement {
+    sid =   "1"
+    effect = "Allow"
+    actions = [
+        "dms:*"
+    ]
+    resources = ["*"]
+  }
+}
+
 data "aws_iam_policy_document" "dms_assume_role" {
   statement {
     actions = ["sts:AssumeRole"]
@@ -106,30 +117,80 @@ data "aws_ami" "amazon_linux_2" {
  }
 }
 
-
-data "aws_network_interface" "db" {
-  # id = "eni-067d6bfbadc6d034d"
-  filter {
-    name = "group-id"
-    values = [aws_security_group.db_sg.id]
-    # values = ["sg-0652e6a207adfec6a"]
-  }
+############################################# postgresql db IP addresses
+# data "aws_network_interface" "target_db" {
+#   # id = "eni-067d6bfbadc6d034d"
+#   filter {
+#     name = "group-id"
+#     values = [aws_security_group.db_sg.id]
+#     # values = ["sg-0652e6a207adfec6a"]
+#   }
   
-  depends_on = [
-    aws_security_group.db_sg,
-    aws_db_instance.target_db
-  ]
+#   depends_on = [
+#     aws_security_group.db_sg,
+#     aws_db_instance.target_db
+#   ]
 
-}
+# }
 
-data "aws_network_interface" "db_2" {
+# data "aws_network_interface" "source_db" {
+
+#   filter {
+#     name = "group-id"
+#     values = [aws_security_group.db_sg_2.id]
+#   }
+#   depends_on = [
+#     aws_security_group.db_sg_2,
+#     aws_db_instance.source_db
+#   ]
+# }
+
+############################################# cluster: aurora postgresql - IP addresses
+data "aws_network_interface" "cluster_target_db" {
 
   filter {
     name = "group-id"
-    values = [aws_security_group.db_sg_2.id]
+    values = [module.cluster_target_db.security_group_id]
   }
   depends_on = [
-    aws_security_group.db_sg_2,
-    aws_db_instance.source_db
+    module.cluster_target_db.security_group_id,
+    module.cluster_target_db
   ]
 }
+
+# output "cluster_target_db_ip" {
+#   value = data.aws_network_interface.cluster_target_db.private_ip
+# }
+
+
+data "aws_network_interface" "cluster_source_db" {
+
+  filter {
+    name = "group-id"
+    values = [module.cluster_source_db.security_group_id]
+  }
+  depends_on = [
+    module.cluster_source_db.security_group_id,
+    module.cluster_source_db
+  ]
+}
+
+# output "cluster_source_db_ip" {
+#   value = data.aws_network_interface.cluster_source_db.private_ip
+# }
+
+
+
+
+
+# output "cluster_def_db_name" {
+#   value =  module.cluster.cluster_database_name
+# }
+
+# output "cluster_endpoint" {
+#   value =  module.cluster.cluster_endpoint
+# }
+
+# output "cluster_port" {
+#   value =  module.cluster.cluster_port
+# }

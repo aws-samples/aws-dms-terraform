@@ -4,7 +4,7 @@ provider "aws" {
 
 data "aws_caller_identity" "current" {}
 
-########################################################## On-premise Source DB
+########################################################## On-premise VPC for Source DB
 module "source_db_vpc" {
   source                = "terraform-aws-modules/vpc/aws"
   name                  = var.vpc_name
@@ -120,18 +120,21 @@ resource "aws_dms_replication_instance" "test" {
 }
 
 locals {
-  endpoint_dns = aws_vpc_endpoint.endpoint.dns_entry[0]["dns_name"]
-  endpoint_dns_2 = aws_vpc_endpoint.endpoint_2.dns_entry[0]["dns_name"]
+  target_endpoint = aws_vpc_endpoint.target_endpoint.dns_entry[0]["dns_name"]
+  source_endpoint = aws_vpc_endpoint.source_endpoint.dns_entry[0]["dns_name"]
+  db_creds_source = jsondecode(aws_secretsmanager_secret_version.source_db_secret.secret_string)
+  db_creds_target = jsondecode(aws_secretsmanager_secret_version.target_db_secret.secret_string)
 }
 
 resource "aws_dms_endpoint" "target" {
   endpoint_id                 = "target-db" 
   endpoint_type               = "target"
   engine_name                 = "postgres"
-  database_name               = "postgres"
-  server_name                 = local.endpoint_dns
-  username                    = aws_db_instance.target_db.username
-  password                    = local.db_creds.password
+  database_name               = "demo_db"
+  server_name                 = local.target_endpoint
+  # username                    = aws_db_instance.target_db.username     #postgresql
+  username                    = module.cluster_target_db.cluster_master_username   #aurora-postgresql
+  password                    = local.db_creds_target.password
   port                        = 5432
 }
 
@@ -139,29 +142,63 @@ resource "aws_dms_endpoint" "source" {
   endpoint_id                 = "source-db" 
   endpoint_type               = "source"
   engine_name                 = "postgres"
-  database_name               = "postgres"
-  server_name                 = local.endpoint_dns_2
-  username                    = aws_db_instance.source_db.username
-  password                    = local.db_creds_src.password
+  database_name               = "demo_db"
+  server_name                 = local.source_endpoint
+  # username                    = aws_db_instance.source_db.username                #postgresql
+  username                    = module.cluster_source_db.cluster_master_username    #aurora-postgresql
+  password                    = local.db_creds_source.password
   port                        = 5432
 }
 
+resource "aws_vpc_endpoint" "dms-endpoint" {
+  vpc_id              = module.dms_vpc.vpc_id
+  service_name        = "com.amazonaws.${var.region}.dms"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = module.dms_vpc.private_subnets
+  security_group_ids  = [aws_security_group.dms_sec_grp.id]
+  private_dns_enabled = true
+  
+  tags = merge(var.common_tags,
+    {
+      Name        = "DMS-EP"
+    }
+  )
+}
+
+resource "aws_security_group" "dms_sec_grp" {
+  name_prefix     = "dms-ep-sg"
+  vpc_id          = module.dms_vpc.vpc_id
+
+  ingress {
+    from_port        = 443
+    to_port          = 443
+    protocol         = "tcp"
+    cidr_blocks      = [module.dms_vpc.vpc_cidr_block]
+  }
+
+  tags = merge(var.common_tags,
+    {
+        Name        = "dms-ep-sg"
+    }
+  )
+}
+
 ########################################### NLB in target VPC
-resource "aws_lb" "nlb" {
-  name                             = "${var.nlb_name}-1"
+resource "aws_lb" "nlb_target_vpc" {
+  name                             = "${var.nlb_name}-target"
   internal                         = true
   load_balancer_type               = "network"
   subnets                          = module.target_db_vpc.private_subnets
 
   tags = merge(var.common_tags,
     {
-      Name        = "${var.nlb_name}-1"
+      Name        = "${var.nlb_name}-target"
     }
   )
 }
 
 resource "aws_lb_listener" "nlb_listener" {
-  load_balancer_arn = aws_lb.nlb.arn
+  load_balancer_arn = aws_lb.nlb_target_vpc.arn
   port              = "5432"
   protocol          = "TCP"
 
@@ -182,20 +219,27 @@ resource "aws_lb_target_group" "nlb_target_group" {
 
 resource "aws_lb_target_group_attachment" "target_db" {
   target_group_arn = aws_lb_target_group.nlb_target_group.arn
-  target_id        = data.aws_network_interface.db.private_ip
+  # target_id        = data.aws_network_interface.target_db.private_ip
+  target_id        = data.aws_network_interface.cluster_target_db.private_ip
   port             = 5432
 }
 
 ########################################### NLB in Source VPC
-resource "aws_lb" "nlb_2" {
-  name                        = "${var.nlb_name}-2"
+resource "aws_lb" "nlb_source_vpc" {
+  name                        = "${var.nlb_name}-source"
   internal                    = true
   load_balancer_type          = "network"
   subnets                     = module.source_db_vpc.private_subnets
+  
+  tags = merge(var.common_tags,
+    {
+      Name        = "${var.nlb_name}-source"
+    }
+  )
 }
 
 resource "aws_lb_listener" "nlb_listener_2" {
-  load_balancer_arn = aws_lb.nlb_2.arn
+  load_balancer_arn = aws_lb.nlb_source_vpc.arn
   port              = "5432"
   protocol          = "TCP"
 
@@ -216,7 +260,8 @@ resource "aws_lb_target_group" "nlb_target_group_2" {
 
 resource "aws_lb_target_group_attachment" "source_db" {
   target_group_arn = aws_lb_target_group.nlb_target_group_2.arn
-  target_id        = data.aws_network_interface.db_2.private_ip
+  # target_id        = data.aws_network_interface.source_db.private_ip
+  target_id        = data.aws_network_interface.cluster_source_db.private_ip
   port             = 5432
 }
 
@@ -226,6 +271,10 @@ resource "aws_iam_role" "instance" {
   inline_policy {
     name   = "ssm-policy"
     policy = data.aws_iam_policy_document.ssm.json
+  }
+  inline_policy {
+    name   = "dms-policy"
+    policy = data.aws_iam_policy_document.dms.json
   }
 }
 
@@ -238,7 +287,7 @@ resource "aws_iam_instance_profile" "ec2_instance_profile" {
 
 resource "aws_vpc_endpoint_service" "endpoint_service" {
   acceptance_required        = false
-  network_load_balancer_arns = [aws_lb.nlb.arn]
+  network_load_balancer_arns = [aws_lb.nlb_target_vpc.arn]
   tags = merge(var.common_tags,
     {
       Name        = "${var.vpc_endpoint_service_name}-target"
@@ -264,7 +313,7 @@ resource "aws_security_group" "endpoint_sec_grp" {
   )
 }
 
-resource "aws_vpc_endpoint" "endpoint" {
+resource "aws_vpc_endpoint" "target_endpoint" {
   vpc_id              = module.dms_vpc.vpc_id
   service_name        = aws_vpc_endpoint_service.endpoint_service.service_name
   vpc_endpoint_type   = "Interface"
@@ -281,7 +330,7 @@ resource "aws_vpc_endpoint" "endpoint" {
 
 resource "aws_vpc_endpoint_service" "endpoint_service_2" {
   acceptance_required        = false
-  network_load_balancer_arns = [aws_lb.nlb_2.arn]
+  network_load_balancer_arns = [aws_lb.nlb_source_vpc.arn]
   tags = merge(var.common_tags,
     {
       Name        = "${var.vpc_endpoint_service_name}-src"
@@ -307,7 +356,7 @@ resource "aws_security_group" "endpoint_sec_grp_2" {
   )
 }
 
-resource "aws_vpc_endpoint" "endpoint_2" {
+resource "aws_vpc_endpoint" "source_endpoint" {
   vpc_id              = module.dms_vpc.vpc_id
   service_name        = aws_vpc_endpoint_service.endpoint_service_2.service_name
   vpc_endpoint_type   = "Interface"
@@ -320,21 +369,21 @@ resource "aws_vpc_endpoint" "endpoint_2" {
   )
 }
 
-resource "aws_db_subnet_group" "subnet_group" {
-  name_prefix   = "subnet-grp-"
-  subnet_ids    = module.target_db_vpc.private_subnets
+# resource "aws_db_subnet_group" "subnet_group" {
+#   name_prefix   = "subnet-grp-"
+#   subnet_ids    = module.target_db_vpc.private_subnets
 
-  tags = {
-    Name = "postgres-subnet-group"
-  }
-}
+#   tags = {
+#     Name = "postgres-subnet-group"
+#   }
+# }
 
 resource "aws_secretsmanager_secret" "masterdb_secret" {
    name_prefix = "target_db_"
 }
 
 
-resource "aws_secretsmanager_secret_version" "sversion" {
+resource "aws_secretsmanager_secret_version" "target_db_secret" {
   secret_id = aws_secretsmanager_secret.masterdb_secret.id
   secret_string = jsonencode({
     "username"             = "postgres"
@@ -342,30 +391,95 @@ resource "aws_secretsmanager_secret_version" "sversion" {
   })
 }
 
-output "secret_target_db" {
-  value =  random_string.target_db.id
-}
 
-locals {
-  db_creds = jsondecode(aws_secretsmanager_secret_version.sversion.secret_string)
-}
 
-resource "aws_db_instance" "target_db" {
-  identifier              = "target-db"
-  allocated_storage       = 20
-  engine                  = "postgres"
-  instance_class          = "db.t3.micro"
-  port                    = 5432
-  username                = local.db_creds.username
-  password                = local.db_creds.password
-  db_subnet_group_name    = aws_db_subnet_group.subnet_group.name
-  vpc_security_group_ids  = [aws_security_group.db_sg.id]
-  publicly_accessible     = false
-  apply_immediately       = true
-  skip_final_snapshot     = true
+# resource "aws_db_instance" "target_db" {
+#   identifier              = "target-db"
+#   allocated_storage       = 20
+#   engine                  = "postgres"
+#   instance_class          = "db.t3.micro"
+#   port                    = 5432
+#   username                = local.db_creds_target.username
+#   password                = local.db_creds_target.password
+#   db_subnet_group_name    = aws_db_subnet_group.subnet_group.name
+#   vpc_security_group_ids  = [aws_security_group.db_sg.id]
+#   publicly_accessible     = false
+#   apply_immediately       = true
+#   skip_final_snapshot     = true
+#   tags = merge(var.common_tags,
+#     {
+#       Name        = "postgres"
+#     }
+#   )
+# }
+
+# target db
+module "cluster_target_db" {
+  source  = "terraform-aws-modules/rds-aurora/aws"
+
+  name              = "target-db-aurora-postgresql"
+  engine            = "aurora-postgresql"
+  engine_version    = "13.4"
+  instance_class    = "db.t3.medium"
+  instances = {
+    one = {}
+  }
+
+  vpc_id                        = module.target_db_vpc.vpc_id
+  subnets                       = module.target_db_vpc.private_subnets
+  master_username               = local.db_creds_target.username
+  master_password               = local.db_creds_target.password
+  database_name                 = "postgres"
+  create_random_password        = false
+  apply_immediately             = true
+  skip_final_snapshot           = true
+
+  allowed_security_groups       = [aws_security_group.db_sg_target.id]
+  allowed_cidr_blocks           = [module.target_db_vpc.vpc_cidr_block]
+
+  storage_encrypted                     = true
+  monitoring_interval                   = 10
+  iam_database_authentication_enabled   = false
+  auto_minor_version_upgrade            = false
+
   tags = merge(var.common_tags,
     {
-      Name        = "postgres"
+      Name        = "target-db-aurora-postgresql"
+    }
+  )
+}
+
+### source db
+module "cluster_source_db" {
+  source            = "terraform-aws-modules/rds-aurora/aws"
+  name              = "source-db-aurora-postgresql"
+  engine            = "aurora-postgresql"
+  engine_version    = "13.4"
+  instance_class    = "db.t3.medium"
+  instances = {
+    one = {}
+  }
+
+  vpc_id                        = module.source_db_vpc.vpc_id
+  subnets                       = module.source_db_vpc.private_subnets
+  master_username               = local.db_creds_source.username
+  master_password               = local.db_creds_source.password
+  database_name                 = "postgres"
+  create_random_password        = false
+  apply_immediately             = true
+  skip_final_snapshot           = true
+
+  allowed_security_groups       = [aws_security_group.db_sg_source.id]
+  allowed_cidr_blocks           = [module.source_db_vpc.vpc_cidr_block]
+
+  storage_encrypted                     = true
+  monitoring_interval                   = 10
+  iam_database_authentication_enabled   = false
+  auto_minor_version_upgrade            = false
+
+  tags = merge(var.common_tags,
+    {
+      Name        = "source-db-aurora-postgresql"
     }
   )
 }
@@ -384,8 +498,26 @@ resource "random_string" "target_db" {
   min_numeric  = 0
 }
 
-resource "aws_security_group" "db_sg" {
-  name_prefix     = "db-SG-"
+# sg for target db
+# resource "aws_security_group" "db_sg" {
+#   name_prefix     = "db-SG-"
+#   vpc_id          = module.target_db_vpc.vpc_id
+
+#   ingress {
+#     from_port        = 5432
+#     to_port          = 5432
+#     protocol         = "tcp"
+#     cidr_blocks      = [module.target_db_vpc.vpc_cidr_block]
+#   }
+#   tags = merge(var.common_tags,
+#     {
+#       Name        = "db-SG"
+#     }
+#   )
+# }
+
+resource "aws_security_group" "db_sg_target" {
+  name_prefix     = "db-sg-target"
   vpc_id          = module.target_db_vpc.vpc_id
 
   ingress {
@@ -396,65 +528,14 @@ resource "aws_security_group" "db_sg" {
   }
   tags = merge(var.common_tags,
     {
-      Name        = "db-SG"
+      Name        = "db-sg-target"
     }
   )
 }
 
-#################
-resource "aws_db_subnet_group" "subnet_group_2" {
-  name_prefix   = "subnet-grp-"
-  subnet_ids    = module.source_db_vpc.private_subnets
-
-  tags = {
-    Name = "postgres-subnet-group"
-  }
-}
-
-resource "aws_db_instance" "source_db" {
-  identifier              = "source-db"
-  allocated_storage       = 20
-  engine                  = "postgres"
-  instance_class          = "db.t3.micro"
-  port                    = 5432
-  username                = local.db_creds_src.username
-  password                = local.db_creds_src.password
-  db_subnet_group_name    = aws_db_subnet_group.subnet_group_2.name
-  vpc_security_group_ids  = [aws_security_group.db_sg_2.id]
-  publicly_accessible     = false
-  apply_immediately       = true
-  skip_final_snapshot     = true
-  tags = merge(var.common_tags,
-    {
-      Name        = "postgres"
-    }
-  )
-}
-
-output "secret_source_db" {
-  value =  random_string.source_db.id
-}
-
-locals {
-  db_creds_src = jsondecode(aws_secretsmanager_secret_version.sversion_1.secret_string)
-}
-
-resource "aws_secretsmanager_secret" "masterdb_secret_2" {
-   name_prefix = "source_db_"
-}
-
-
-resource "aws_secretsmanager_secret_version" "sversion_1" {
-  secret_id = aws_secretsmanager_secret.masterdb_secret_2.id
-  secret_string = jsonencode({
-    "username"             = "postgres"
-    "password"             = "${random_string.source_db.id}"
-  })
-}
-
-resource "aws_security_group" "db_sg_2" {
-  name_prefix        = "db-sg-"
-  vpc_id      = module.source_db_vpc.vpc_id
+resource "aws_security_group" "db_sg_source" {
+  name_prefix     = "db-sg-source"
+  vpc_id          = module.source_db_vpc.vpc_id
 
   ingress {
     from_port        = 5432
@@ -464,14 +545,77 @@ resource "aws_security_group" "db_sg_2" {
   }
   tags = merge(var.common_tags,
     {
-      Name        = "db-sg-"
+      Name        = "db-sg-sourcet"
     }
   )
 }
 
+#################
+# resource "aws_db_subnet_group" "subnet_group_2" {
+#   name_prefix   = "subnet-grp-"
+#   subnet_ids    = module.source_db_vpc.private_subnets
+
+#   tags = {
+#     Name = "postgres-subnet-group"
+#   }
+# }
+
+# resource "aws_db_instance" "source_db" {
+#   identifier              = "source-db"
+#   allocated_storage       = 20
+#   engine                  = "postgres"
+#   instance_class          = "db.t3.micro"
+#   port                    = 5432
+#   username                = local.db_creds_source.username
+#   password                = local.db_creds_source.password
+#   db_subnet_group_name    = aws_db_subnet_group.subnet_group_2.name
+#   vpc_security_group_ids  = [aws_security_group.db_sg_2.id]
+#   publicly_accessible     = false
+#   apply_immediately       = true
+#   skip_final_snapshot     = true
+#   tags = merge(var.common_tags,
+#     {
+#       Name        = "postgres"
+#     }
+#   )
+# }
+
+
+
+resource "aws_secretsmanager_secret" "masterdb_secret_2" {
+   name_prefix = "source_db_"
+}
+
+
+resource "aws_secretsmanager_secret_version" "source_db_secret" {
+  secret_id = aws_secretsmanager_secret.masterdb_secret_2.id
+  secret_string = jsonencode({
+    "username"             = "postgres"
+    "password"             = "${random_string.source_db.id}"
+  })
+}
+
+# sec group for source db
+# resource "aws_security_group" "db_sg_2" {
+#   name_prefix        = "db-sg-"
+#   vpc_id             = module.source_db_vpc.vpc_id
+
+#   ingress {
+#     from_port        = 5432
+#     to_port          = 5432
+#     protocol         = "tcp"
+#     cidr_blocks      = [module.source_db_vpc.vpc_cidr_block]
+#   }
+#   tags = merge(var.common_tags,
+#     {
+#       Name        = "db-sg-"
+#     }
+#   )
+# }
+
 ##################################################### EC2 Host in DMS VPC
 
-resource "aws_network_interface" "nic" {
+resource "aws_network_interface" "ec2_nic" {
   subnet_id       = module.dms_vpc.private_subnets[0]
   security_groups = [aws_security_group.ec2_sg.id]
 }
@@ -483,7 +627,7 @@ resource "aws_instance" "ec2" {
   user_data             = file("../scripts/user_data.sh")
 
   network_interface {
-    network_interface_id = aws_network_interface.nic.id
+    network_interface_id = aws_network_interface.ec2_nic.id
     device_index         = 0
   }
 

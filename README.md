@@ -1,4 +1,4 @@
-## Data migration between on premises and Amazon RDS for PostgreSQL databases hosted in private/non-routable VPCs using DMS
+## Data migration between on premises and Aurora databases hosted in private/non-routable VPCs using DMS
 
 This solution demonstrates how to configure different AWS services to simulate customer environments consisting of DMS instances hosted on VPCs without direct network connectivity to on-premises and target networks. The objective is not to provide a deep dive on the services used, to act as a guideline on how to leverage these services to achieve alternate ways of VPC connectivity. Finally, to validate the architecture, we provide SQL statements to create sample database objects and insert data, and AWS CLI commands to migrate objects and data using AWS DMS. The AWS services used in our proposed architecture are:
 - 3 VPCs (on-prem, DMS, and target)
@@ -35,7 +35,7 @@ terraform plan -out=tfplan -var-file="../variables/dev/common.tfvars.json"
 terraform apply tfplan
 ```
 
-The infrastructure creation takes around 5-20 minutes to complete.
+The infrastructure creation takes around 15-20 minutes to complete.
 
 ### Solution Validation
 
@@ -43,11 +43,19 @@ To validate the environment, we just built using the Terraform modules, we perfo
 
 #### Prepare source database
 
-1.	Using the PostgreSQL client (psql) in the bastion host, connect to the source database via the NLB VPC endpoint.
+1.	Using the output of the “terraform output” command, take note of the following four fields as you will need them to connect to each database.
+```
+secret_source_db = password of the source database
+secret_target_db = password of the target database
+source_vpc_endpoint = endpoint to connect to the source database
+target_vpc_endpoint = endpoint to connect to the target database
+```
 
-`psql -v sslmode=require -h sourceVpcEndpoint -p 5432 -d postgres -U postgres`
+2.	Using the PostgreSQL client (psql) in the bastion host, connect to the source database via the NLB VPC endpoint.
 
-2.	Next create a database, schema, and table objects.
+`psql -h source_vpc_endpoint -p 5432 -d postgres -U postgres`
+
+3.	Next create a database, schema, and table objects.
 
 ```
 CREATE DATABASE demo_db;
@@ -61,18 +69,17 @@ CREATE TABLE demo_schema.demo_accounts(
 );
 ```
 
-3.	Describe the table.
+4.	Describe the table.
 
 ```
 \dt+ demo_schema.demo_accounts
-\d demo_schema.demo_accounts
 ```
 
 The output must look similar to the one below:
 
 ![output](images/output1.png)
 
-4.	Insert sample records in the newly created table.
+5.	Insert sample records in the newly created table.
 
 ```
 INSERT INTO demo_schema.demo_accounts VALUES 
@@ -86,7 +93,7 @@ The insert command returns an output similar to this:
 
 `INSERT 0 4`
 
-5.	Verify all the records were successfully created.
+6.	Verify all the records were successfully created.
 
 `SELECT * FROM demo_schema.demo_accounts;`
 
@@ -100,7 +107,7 @@ Before we start the migration, we must create the target database used for the c
 
 1.	Using the PostgreSQL client installed in the bastion host, connect to the target database via the target NLB VPC endpoint.
 
-```psql -v sslmode=require -h targetVpcEndpoint -p 5432 -d postgres -U postgres```
+```psql -h target_vpc_endpoint -p 5432 -d postgres -U postgres```
 
 2.	Next, create the target database by running the following statement.
 
@@ -113,20 +120,13 @@ The DMS replication tasks are the core component of the database migration proce
 1.	Create the task-settings.json file can be created using this sample JSON document:
 ```
 {
-  "TargetMetadata": {
-    "SupportLobs": true,
-    "FullLobMode": false,
-    "LobChunkSize": 64,
-    "LimitedSizeLobMode": true,
-    "LobMaxSize":2048
-  },
-  "FullLoadSettings": {
-    "TargetTablePrepMode": "TRUNCATE_BEFORE_LOAD",
-    "MaxFullLoadSubTasks":16
-  },
-  "Logging": {
-    "EnableLogging": true
-  }
+	"FullLoadSettings": {
+		"TargetTablePrepMode": "TRUNCATE_BEFORE_LOAD",
+		"MaxFullLoadSubTasks":16
+	},
+	"Logging": {
+		"EnableLogging": true
+	}
 }
 ```
 
@@ -166,23 +166,22 @@ aws dms create-replication-task --replication-task-identifier $dmsRepTask --sour
 5.	Wait approximately 60 seconds for the task to be created and then run the DMS migration task.
 ```
 export dmsRepTaskARN=$(aws dms describe-replication-tasks --filters Name=replication-task-id,Values=$dmsRepTask
---query "ReplicationTasks[*].ReplicationTaskArn" --output text)
+--query "ReplicationTasks[*].ReplicationTaskArn" --region $AWS_REGION --output text)
 
 aws dms start-replication-task --start-replication-task-type start-replication --replication-task-arn $ dmsRepTaskARN --region $AWS_REGION
 ```
 
 6.	Monitor the migration task while it is running. You can run this command in a loop at different intervals.
 
-```aws dms describe-replication-tasks --filters Name=replication-task-id,Values=$dmsRepTask --output table```
+```aws dms describe-replication-tasks --filters Name=replication-task-id,Values=$dmsRepTask --region $AWS_REGION --output table```
 
 7.	Once the task has completed, connect to the target database using a PostgreSQL client.
 
-```psql -v sslmode=require -h targetVpcEndpoint -p 5432 -d demo_db -U master```
+```psql  -h target_vpc_endpoint  -p 5432 -d demo_db -U postgres```
 
 8.	Describe the target table to validate it is migrated successfully.
 ```
 \dt+ demo_schema.demo_accounts
-\d demo_schema.demo_accounts
 ```
 
 The output must look similar to the one below:
@@ -196,6 +195,11 @@ The output must look similar to the one below:
 
 The output must look similar to the one below:
 
+
+10.  After having verified the contents of the database, delete the replication task by running the following
+command.
+
+```aws dms delete-replication-task --replication-task-arn $dmsRepTaskARN --region $AWS_REGION```
 
 ![output](images/output4.png)
 
