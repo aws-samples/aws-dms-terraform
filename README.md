@@ -120,13 +120,13 @@ The DMS replication tasks are the core component of the database migration proce
 1.	Create the task-settings.json file can be created using this sample JSON document:
 ```
 {
-	"FullLoadSettings": {
-		"TargetTablePrepMode": "TRUNCATE_BEFORE_LOAD",
-		"MaxFullLoadSubTasks":16
-	},
-	"Logging": {
-		"EnableLogging": true
-	}
+"FullLoadSettings": {
+	"TargetTablePrepMode": "TRUNCATE_BEFORE_LOAD",
+	"MaxFullLoadSubTasks":16
+},
+"Logging": {
+	"EnableLogging": true
+}
 }
 ```
 
@@ -195,13 +195,12 @@ The output must look similar to the one below:
 
 The output must look similar to the one below:
 
+![output](images/output4.png)
 
 10.  After having verified the contents of the database, delete the replication task by running the following
 command.
 
 ```aws dms delete-replication-task --replication-task-arn $dmsRepTaskARN --region $AWS_REGION```
-
-![output](images/output4.png)
 
 If you require further details on [DMS configuration best practices](https://docs.aws.amazon.com/dms/latest/userguide/CHAP_BestPractices.html]), you can consult the AWS Documentation website. As always, once you are done with your testing, please make sure to use Terraform to delete all the services created and prevent future charges to your account.
 
