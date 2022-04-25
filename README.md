@@ -208,7 +208,7 @@ If you require further details on [DMS configuration best practices](https://doc
 
 Once you finish your test, please make sure to remove all the created resources, to avoid incurring in future costs. Run the following command to destroy all the objects managed by your Terraform configuration:
 
-1. terraform destroy -var-file="../variables/dev/common.tfvars.json"
+```terraform destroy -var-file="../variables/dev/common.tfvars.json"```
 
 ### Conclusion
 
