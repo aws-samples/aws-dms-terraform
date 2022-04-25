@@ -1,4 +1,4 @@
-## Data migration between on premises and Aurora databases hosted in private/non-routable VPCs using DMS
+## Data migration between on premises and Aurora databases hosted in isolated VPCs using DMS
 
 This solution demonstrates how to configure different AWS services to simulate customer environments consisting of DMS instances hosted on VPCs without direct network connectivity to on-premises and target networks. The objective is not to provide a deep dive on the services used, to act as a guideline on how to leverage these services to achieve alternate ways of VPC connectivity. Finally, to validate the architecture, we provide SQL statements to create sample database objects and insert data, and AWS CLI commands to migrate objects and data using AWS DMS. The AWS services used in our proposed architecture are:
 - 3 VPCs (on-prem, DMS, and target)
