@@ -13,7 +13,7 @@ The solution is represented in the following diagram.
 
 #### Architecture
 
-![dms-architecture](images/dms.png)
+![dms-architecture](images/dms-architecture.png)
 
 ### Requirements
 
