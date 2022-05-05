@@ -130,13 +130,12 @@ The DMS replication tasks are the core component of the database migration proce
 1.	Create the task-settings.json file can be created using this sample JSON document:
 ```
 {
-"FullLoadSettings": {
-	"TargetTablePrepMode": "TRUNCATE_BEFORE_LOAD",
-	"MaxFullLoadSubTasks":16
-},
-"Logging": {
-	"EnableLogging": true
-}
+   "FullLoadSettings":{
+      "TargetTablePrepMode":"TRUNCATE_BEFORE_LOAD"
+   },
+   "Logging":{
+      "EnableLogging":true
+   }
 }
 ```
 
