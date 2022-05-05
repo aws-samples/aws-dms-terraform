@@ -37,6 +37,16 @@ terraform apply tfplan
 
 The infrastructure creation takes around 15-20 minutes to complete.
 
+### Validation of Terraform build
+
+After the environment has been deployed, we can validate that all the AWS services have been properly provisioned by looking at infrastructure deployed by running the following command:
+
+`terraform output`
+
+You can expect to see an output similar to the following screenshot.
+
+![tf-output](images/tf-ouput.png)
+
 ### Solution Validation
 
 To validate the environment, we just built using the Terraform modules, we perform a test migration using DMS. The workflow involves the creation of a set of tables on the source database, insertion of data records on the new tables, and finally the creation and run of the DMS migration task.
